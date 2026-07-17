@@ -1,62 +1,45 @@
 import { useCallback, useState } from 'react';
-import {
-  ReactFlow, Background, MiniMap, Controls, addEdge, applyEdgeChanges,
-  applyNodeChanges, BackgroundVariant, ReactFlowProvider, useReactFlow,
-  type Connection, type EdgeChange, type NodeChange,
-} from '@xyflow/react';
-import { ActionIcon, AppShell, Badge, Button, Divider, Drawer, Group, Stack, Text, TextInput, Tooltip } from '@mantine/core';
-import {
-  Plus, Search, FolderOpen, History, Settings, PanelLeftClose, Map,
-  LayoutDashboard, Undo2, Redo2, Save, ChevronRight,
-  FileText, Image, Video, Volume2, Upload, Command,
-} from 'lucide-react';
+import { ReactFlow, Background, MiniMap, Controls, addEdge, applyEdgeChanges, applyNodeChanges, BackgroundVariant, ReactFlowProvider, useReactFlow, type Connection, type EdgeChange, type NodeChange } from '@xyflow/react';
+import { ActionIcon, AppShell, Badge, Button, Divider, Group, Menu, Modal, SimpleGrid, Stack, Tabs, Text, TextInput, Tooltip } from '@mantine/core';
+import { Plus, Search, FolderOpen, History, Settings, Save, ChevronRight, FileText, Image, Video, Volume2, Upload, Command, Workflow, Users, Keyboard, CircleHelp, LayoutGrid, CheckSquare2 } from 'lucide-react';
 import { CreativeNode } from './CreativeNode';
 import { useCanvasStore } from './store';
-import { models } from './modelCatalog';
 
-const copy = {
-  workspace: '\u672a\u547d\u540d\u5de5\u4f5c\u533a', saved: '\u5df2\u4fdd\u5b58', services: '4 \u4e2a\u6a21\u578b\u670d\u52a1',
-  local: '\u672c\u5730\u5de5\u4f5c\u533a', settings: '\u8bbe\u7f6e', add: '\u6dfb\u52a0\u8282\u70b9', search: '\u8282\u70b9\u641c\u7d22',
-  assets: '\u8d44\u4ea7\u5e93', history: '\u751f\u6210\u5386\u53f2', undo: '\u64a4\u9500', redo: '\u91cd\u505a',
-  upload: '\u4e0a\u4f20\u672c\u5730\u7d20\u6750',
-};
+type Panel = 'assets' | 'characters' | 'history' | 'search' | 'shortcuts' | 'help';
 const nodeTypes = { creative: CreativeNode };
+const copy = { workspace: '\u672a\u547d\u540d\u5de5\u4f5c\u533a', saved: '\u5df2\u4fdd\u5b58', services: '4 \u4e2a\u6a21\u578b\u670d\u52a1', local: '\u672c\u5730\u5de5\u4f5c\u533a', settings: '\u8bbe\u7f6e', add: '\u6dfb\u52a0\u8282\u70b9', search: '\u8282\u70b9\u641c\u7d22', assets: '\u8d44\u4ea7\u5e93', characters: '\u89d2\u8272\u5e93', history: '\u5386\u53f2\u8d44\u4ea7', upload: '\u4e0a\u4f20\u672c\u5730\u7d20\u6750' };
+const characterImages = ['https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=420&q=80','https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=420&q=80','https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=420&q=80','https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=420&q=80','https://images.unsplash.com/photo-1531123897727-8f129e1688ce?auto=format&fit=crop&w=420&q=80'];
 
 function Workspace() {
-  const { nodes, edges, selected, setNodes, setEdges, select, addNode, patch } = useCanvasStore();
-  const [panel, setPanel] = useState<'assets' | 'history' | 'search' | null>(null);
+  const { nodes, edges, setNodes, setEdges, select, addNode } = useCanvasStore();
+  const [panel, setPanel] = useState<Panel | null>(null);
   const { fitView } = useReactFlow();
   const onNodesChange = useCallback((changes: NodeChange[]) => setNodes(applyNodeChanges(changes, nodes) as typeof nodes), [nodes, setNodes]);
   const onEdgesChange = useCallback((changes: EdgeChange[]) => setEdges(applyEdgeChanges(changes, edges)), [edges, setEdges]);
   const onConnect = useCallback((connection: Connection) => setEdges(addEdge({ ...connection, animated: true }, edges)), [edges, setEdges]);
-
-
-  return <AppShell header={{ height: 52 }} navbar={{ width: 58, breakpoint: 'sm' }} padding={0}>
-    <AppShell.Header className="topbar">
-      <Group justify="space-between" h="100%" px={14}>
-        <Group gap={10}><div className="brand">F</div><TextInput className="project-name" variant="unstyled" defaultValue={copy.workspace}/><Badge variant="light" color="teal" leftSection={<Save size={12}/>}>{copy.saved}</Badge></Group>
-        <Group gap={6}><Badge variant="default">{copy.services}</Badge><Tooltip label={copy.settings}><ActionIcon variant="subtle" color="gray"><Settings size={17}/></ActionIcon></Tooltip><Button size="xs" variant="default">{copy.local}</Button></Group>
-      </Group>
-    </AppShell.Header>
-    <AppShell.Navbar className="rail" p={8}>
-      <Stack justify="space-between" h="100%"><Stack gap={7}><Tool icon={Plus} label={copy.add} onClick={() => addNode('text')} active/><Tool icon={Search} label={copy.search} onClick={() => setPanel('search')}/><Tool icon={FolderOpen} label={copy.assets} onClick={() => setPanel('assets')}/><Tool icon={History} label={copy.history} onClick={() => setPanel('history')}/><Divider/><Tool icon={Command} label="Skill"/></Stack><Stack gap={7}><Tool icon={Undo2} label={copy.undo}/><Tool icon={Redo2} label={copy.redo}/></Stack></Stack>
-    </AppShell.Navbar>
-    <AppShell.Main className="canvas-shell">
-      <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => select(node.id)} onPaneClick={() => select(undefined)} fitView minZoom={0.15} maxZoom={2} colorMode="dark">
-        <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#34373b"/><MiniMap pannable zoomable nodeColor="#464b51" maskColor="rgba(10,11,12,.72)"/><Controls position="bottom-left" showInteractive={false}/>
-        <div className="bottom-tools"><Tooltip label="Text"><ActionIcon onClick={() => addNode('text')}><FileText size={17}/></ActionIcon></Tooltip><Tooltip label="Image"><ActionIcon variant="default" onClick={() => addNode('image')}><Image size={17}/></ActionIcon></Tooltip><Tooltip label="Video"><ActionIcon variant="default" onClick={() => addNode('video')}><Video size={17}/></ActionIcon></Tooltip><Tooltip label="Audio"><ActionIcon variant="default" onClick={() => addNode('audio')}><Volume2 size={17}/></ActionIcon></Tooltip><Divider orientation="vertical"/><Tooltip label="Auto layout"><ActionIcon variant="default" onClick={() => fitView({ duration: 500, padding: 0.2 })}><LayoutDashboard size={17}/></ActionIcon></Tooltip><Tooltip label="Mini map"><ActionIcon variant="default"><Map size={17}/></ActionIcon></Tooltip></div>
-      </ReactFlow>
-      <Drawer opened={!!panel} onClose={() => setPanel(null)} title={panel === 'assets' ? copy.assets : panel === 'history' ? copy.history : copy.search} position="left" offset={64} size={360}>
-        {panel === 'search' && <Stack><TextInput leftSection={<Search size={15}/>} placeholder="Search title, prompt or content"/>{nodes.map((node) => <Button key={node.id} variant="subtle" color="gray" justify="space-between" rightSection={<ChevronRight size={14}/>} onClick={() => { select(node.id); setPanel(null); fitView({ nodes: [{ id: node.id }], duration: 450, maxZoom: 1 }); }}>{node.data.title}</Button>)}</Stack>}
-        {panel === 'assets' && <Stack><Button variant="default" leftSection={<Upload size={15}/>}>{copy.upload}</Button>{nodes.filter((node) => node.data.preview).map((node) => <div className="asset-row" key={node.id}><img src={node.data.preview}/><div><Text size="sm" fw={600}>{node.data.title}</Text><Text size="xs" c="dimmed">{node.data.kind} / result</Text></div></div>)}</Stack>}
-        {panel === 'history' && <Stack>{nodes.filter((node) => node.data.state === 'succeeded' || node.data.state === 'stale').map((node) => <div className="history-row" key={node.id}><Badge color={node.data.state === 'stale' ? 'orange' : 'teal'} variant="dot">{node.data.state}</Badge><div><Text size="sm">{node.data.title}</Text><Text size="xs" c="dimmed">{node.data.provider} / {node.data.model}</Text></div></div>)}</Stack>}
-      </Drawer>
+  return <AppShell header={{ height: 52 }} padding={0}>
+    <AppShell.Header className="topbar"><Group justify="space-between" h="100%" px={14}><Group gap={10}><div className="brand">F</div><TextInput className="project-name" variant="unstyled" defaultValue={copy.workspace}/><Badge variant="light" color="teal" leftSection={<Save size={12}/>}>{copy.saved}</Badge></Group><Group gap={6}><Badge variant="default">{copy.services}</Badge><Tooltip label={copy.settings}><ActionIcon variant="subtle" color="gray"><Settings size={17}/></ActionIcon></Tooltip><Button size="xs" variant="default">{copy.local}</Button></Group></Group></AppShell.Header>
+    <AppShell.Main className="canvas-shell"><ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => select(node.id)} onPaneClick={() => select(undefined)} fitView minZoom={0.15} maxZoom={2} colorMode="dark"><Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#34373b"/><MiniMap pannable zoomable nodeColor="#464b51" maskColor="rgba(10,11,12,.72)"/><Controls position="bottom-left" showInteractive={false}/></ReactFlow>
+      <nav className="floating-dock" aria-label="Canvas tools"><Menu position="top" width={180} shadow="xl"><Menu.Target><Tooltip label={copy.add}><ActionIcon size={42} radius="md" color="gray" variant="filled"><Plus size={23}/></ActionIcon></Tooltip></Menu.Target><Menu.Dropdown><Menu.Item leftSection={<FileText size={15}/>} onClick={() => addNode('text')}>Text node</Menu.Item><Menu.Item leftSection={<Image size={15}/>} onClick={() => addNode('image')}>Image node</Menu.Item><Menu.Item leftSection={<Video size={15}/>} onClick={() => addNode('video')}>Video node</Menu.Item><Menu.Item leftSection={<Volume2 size={15}/>} onClick={() => addNode('audio')}>Audio node</Menu.Item></Menu.Dropdown></Menu><DockButton icon={Workflow} label="Workflow" onClick={() => fitView({ duration: 450, padding: 0.15 })}/><DockButton icon={LayoutGrid} label={copy.assets} onClick={() => setPanel('assets')}/><DockButton icon={Users} label={copy.characters} onClick={() => setPanel('characters')}/><DockButton icon={History} label={copy.history} onClick={() => setPanel('history')}/><Divider orientation="vertical"/><DockButton icon={Search} label={copy.search} onClick={() => setPanel('search')}/><DockButton icon={Keyboard} label="Shortcuts" onClick={() => setPanel('shortcuts')}/><DockButton icon={CircleHelp} label="Help" onClick={() => setPanel('help')}/></nav>
+      <WorkspaceModal panel={panel} close={() => setPanel(null)} nodes={nodes} selectNode={(id) => { select(id); setPanel(null); fitView({ nodes: [{ id }], duration: 450, maxZoom: 1 }); }}/>
     </AppShell.Main>
   </AppShell>;
 }
 
-function Tool({ icon: Icon, label, onClick, active }: { icon: typeof Plus; label: string; onClick?: () => void; active?: boolean }) {
-  return <Tooltip label={label} position="right"><ActionIcon size={40} variant={active ? 'light' : 'subtle'} color={active ? 'cyan' : 'gray'} onClick={onClick}><Icon size={18}/></ActionIcon></Tooltip>;
+function DockButton({ icon: Icon, label, onClick }: { icon: typeof Plus; label: string; onClick: () => void }) { return <Tooltip label={label} position="top"><ActionIcon size={34} variant="subtle" color="gray" onClick={onClick}><Icon size={18}/></ActionIcon></Tooltip>; }
+type CanvasNodes = ReturnType<typeof useCanvasStore.getState>['nodes'];
+function WorkspaceModal({ panel, close, nodes, selectNode }: { panel: Panel | null; close: () => void; nodes: CanvasNodes; selectNode: (id: string) => void }) {
+  const title = panel === 'assets' ? copy.assets : panel === 'characters' ? copy.characters : panel === 'history' ? copy.history : panel === 'search' ? copy.search : panel === 'shortcuts' ? 'Keyboard shortcuts' : 'Help';
+  return <Modal opened={panel !== null} onClose={close} title={title} centered size="80vw" overlayProps={{ backgroundOpacity: 0.72, blur: 3 }} classNames={{ content: 'workspace-modal', body: 'workspace-modal-body', header: 'workspace-modal-header' }}>
+    {panel === 'assets' && <Tabs defaultValue="image"><Group justify="space-between" mb="sm"><Tabs.List><Tabs.Tab value="image">Images ({nodes.filter((n) => n.data.kind === 'image').length})</Tabs.Tab><Tabs.Tab value="video">Videos ({nodes.filter((n) => n.data.kind === 'video').length})</Tabs.Tab><Tabs.Tab value="audio">Audio (0)</Tabs.Tab></Tabs.List><Group><Button variant="default" leftSection={<CheckSquare2 size={15}/>}>Batch actions</Button><Button leftSection={<Upload size={15}/>}>{copy.upload}</Button></Group></Group><Tabs.Panel value="image"><AssetGrid nodes={nodes.filter((n) => n.data.kind === 'image')}/></Tabs.Panel><Tabs.Panel value="video"><AssetGrid nodes={nodes.filter((n) => n.data.kind === 'video')}/></Tabs.Panel><Tabs.Panel value="audio"><EmptyState text="No audio assets yet"/></Tabs.Panel></Tabs>}
+    {panel === 'characters' && <Stack><Group justify="space-between"><TextInput leftSection={<Search size={15}/>} placeholder="Search characters" w={320}/><Button leftSection={<Plus size={15}/>}>Create character</Button></Group><div className="featured-character"><div><Text fw={700} size="lg">Character reference set</Text><Text size="sm" c="dimmed">Portraits, expressions and turnaround views stay linked to generation nodes.</Text></div><Button variant="white" leftSection={<Plus size={15}/>}>Apply to canvas</Button></div><SimpleGrid cols={5} spacing="sm">{characterImages.map((src, index) => <div className="character-card" key={src}><img src={src}/><Text size="sm" fw={600}>Character {index + 1}</Text><Text size="xs" c="dimmed">Portrait reference</Text></div>)}</SimpleGrid></Stack>}
+    {panel === 'history' && <Tabs defaultValue="all"><Group justify="space-between" mb="md"><Tabs.List><Tabs.Tab value="all">All</Tabs.Tab><Tabs.Tab value="image">Images</Tabs.Tab><Tabs.Tab value="video">Videos</Tabs.Tab></Tabs.List><TextInput leftSection={<Search size={15}/>} placeholder="Search history"/></Group><Tabs.Panel value="all"><HistoryList nodes={nodes}/></Tabs.Panel><Tabs.Panel value="image"><HistoryList nodes={nodes.filter((n) => n.data.kind === 'image')}/></Tabs.Panel><Tabs.Panel value="video"><HistoryList nodes={nodes.filter((n) => n.data.kind === 'video')}/></Tabs.Panel></Tabs>}
+    {panel === 'search' && <Stack><TextInput leftSection={<Search size={17}/>} placeholder="Search title, prompt or content" size="md" autoFocus/>{nodes.map((node) => <Button key={node.id} variant="subtle" color="gray" justify="space-between" rightSection={<ChevronRight size={14}/>} onClick={() => selectNode(node.id)}><span>{node.data.title}</span><Text span size="xs" c="dimmed">{node.data.kind} / {node.data.model}</Text></Button>)}</Stack>}
+    {panel === 'shortcuts' && <SimpleGrid cols={2}>{[['Pan canvas','Space + drag'],['Select multiple','Shift + click'],['Delete node','Backspace'],['Fit view','F'],['Undo','Ctrl + Z'],['Redo','Ctrl + Shift + Z']].map(([name, key]) => <Group className="shortcut-row" justify="space-between" key={name}><Text size="sm">{name}</Text><Badge variant="default">{key}</Badge></Group>)}</SimpleGrid>}
+    {panel === 'help' && <EmptyState text="Documentation and local model setup guides will appear here."/>}
+  </Modal>;
 }
-
+function AssetGrid({ nodes }: { nodes: CanvasNodes }) { if (!nodes.length) return <EmptyState text="No assets in this category"/>; return <SimpleGrid cols={4} spacing="sm">{nodes.map((node) => <div className="asset-card" key={node.id}>{node.data.preview ? <img src={node.data.preview}/> : <div className="asset-placeholder"><Image size={34}/></div>}<Group justify="space-between" p="sm"><div><Text size="sm" fw={600}>{node.data.title}</Text><Text size="xs" c="dimmed">{node.data.provider || 'Local'} / {node.data.model || 'Draft'}</Text></div><Badge color={node.data.state === 'stale' ? 'orange' : 'teal'} variant="dot">{node.data.state}</Badge></Group></div>)}</SimpleGrid>; }
+function HistoryList({ nodes }: { nodes: CanvasNodes }) { const items = nodes.filter((node) => node.data.state === 'succeeded' || node.data.state === 'stale'); if (!items.length) return <EmptyState text="No generation history"/>; return <Stack gap={7}>{items.map((node) => <Group className="history-item" key={node.id} justify="space-between"><Group>{node.data.preview ? <img src={node.data.preview}/> : <div className="history-icon"><Command size={18}/></div>}<div><Text size="sm" fw={600}>{node.data.title}</Text><Text size="xs" c="dimmed">{node.data.provider} / {node.data.model}</Text></div></Group><Badge color={node.data.state === 'stale' ? 'orange' : 'teal'} variant="dot">{node.data.state}</Badge></Group>)}</Stack>; }
+function EmptyState({ text }: { text: string }) { return <div className="modal-empty"><FolderOpen size={36}/><Text c="dimmed" size="sm">{text}</Text></div>; }
 export function App() { return <ReactFlowProvider><Workspace/></ReactFlowProvider>; }

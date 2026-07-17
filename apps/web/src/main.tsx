@@ -6,6 +6,7 @@ import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import '@xyflow/react/dist/style.css';
 import './styles.css';
+import './workspace.css';
 import { App } from './App';
 
 const theme=createTheme({primaryColor:'cyan',defaultRadius:'sm',fontFamily:'Inter, "Microsoft YaHei", sans-serif',components:{Button:{defaultProps:{radius:'sm'}},ActionIcon:{defaultProps:{radius:'sm'}}}});
