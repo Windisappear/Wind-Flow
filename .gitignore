@@ -1,0 +1,10 @@
+node_modules
+.pnpm-store
+.agents
+dist
+.env
+.vite
+coverage
+uploads
+*.log
+*.tsbuildinfo

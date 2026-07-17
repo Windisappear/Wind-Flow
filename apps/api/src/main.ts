@@ -1,0 +1,2 @@
+import 'reflect-metadata';import { NestFactory } from '@nestjs/core';import { SwaggerModule,DocumentBuilder } from '@nestjs/swagger';import { AppModule } from './modules';
+async function bootstrap(){const app=await NestFactory.create(AppModule);app.setGlobalPrefix('api');app.enableCors();const config=new DocumentBuilder().setTitle('Infinite Canvas API').setVersion('0.1').addBearerAuth().build();SwaggerModule.setup('api/docs',app,SwaggerModule.createDocument(app,config));await app.listen(process.env.PORT||3000)}bootstrap();
