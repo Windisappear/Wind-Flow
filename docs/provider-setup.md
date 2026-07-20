@@ -25,6 +25,29 @@ Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/providers/deepseek
 
 ## 中转站图像 API
 
+当前已按你提供的多元探索即梦文档接入 `POST /v1/images/generations` 格式。文档中的主要字段是 `model`、`prompt`、`n`、`size`、`image[]`、`ratio` 和 `resolution`。
+
+配置：
+
+```powershell
+$env:JIMENG_API_KEY = '<relay-key>'
+$env:JIMENG_BASE_URL = '<relay-base-url-without-trailing-slash>'
+$env:JIMENG_MODEL = 'jimeng-4.5'
+```
+
+检查状态：
+
+```powershell
+Invoke-RestMethod http://localhost:3000/api/providers/jimeng
+```
+
+测试请求（会消耗额度）：
+
+```powershell
+$body = @{ model='jimeng-4.5'; prompt='一座清晨的未来城市'; n=1; size='1024*1024'; ratio='1:1'; resolution='2k' } | ConvertTo-Json -Depth 5
+Invoke-RestMethod -Method Post -Uri http://localhost:3000/api/providers/jimeng/images -ContentType 'application/json' -Body $body
+```
+
 中转站需要提供以下信息：
 
 - API Base URL，例如 `https://proxy.example.com/v1`。

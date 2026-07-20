@@ -55,6 +55,14 @@ class DeepSeekController {
   @Post('chat') chat(@Body() body: { messages: ChatMessage[]; model?: string; temperature?: number }) { return this.providers.chat(body.messages, body.model, body.temperature); }
 }
 
+@ApiTags('providers')
+@Controller('providers/jimeng')
+class JimengController {
+  constructor(private readonly providers: ProvidersService) {}
+  @Get() status() { return this.providers.jimengStatus(); }
+  @Post('images') generate(@Body() body: { model?: string; prompt: string; n?: number; size?: string; image?: string[]; ratio?: string; resolution?: string }) { return this.providers.generateJimeng(body); }
+}
+
 @ApiTags('projects')
 @Controller('projects')
 class ProjectController {
@@ -100,5 +108,5 @@ class JobController {
 }
 
 type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
-@Module({ controllers: [SystemController, DeepSeekController, ProjectController, NodeController, AssetController, JobController], providers: [PrismaService, GenerationQueueService, ProvidersService] })
+@Module({ controllers: [SystemController, DeepSeekController, JimengController, ProjectController, NodeController, AssetController, JobController], providers: [PrismaService, GenerationQueueService, ProvidersService] })
 export class AppModule {}
