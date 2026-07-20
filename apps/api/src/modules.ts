@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Module, Param, Post, Query, Sse } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Module, Param, Post, Query, Sse } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { interval, map, Observable, Subject } from 'rxjs';
 import { PrismaService } from './prisma.service';
@@ -40,7 +40,7 @@ const ensureProject = (id: string) => {
 @ApiTags('system')
 @Controller()
 class SystemController {
-  constructor(private readonly prisma: PrismaService, private readonly queue: GenerationQueueService, private readonly providers: ProvidersService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService, @Inject(GenerationQueueService) private readonly queue: GenerationQueueService, @Inject(ProvidersService) private readonly providers: ProvidersService) {}
   @Get('health') health() { return { status: 'ok', storage: this.prisma.enabled ? 'postgresql' : 'memory', queue: this.queue.enabled ? 'redis' : 'memory', time: now() }; }
   @Get('model-catalog') models() { return catalog; }
   @Get('providers/deepseek') deepseek() { return this.providers.deepseekStatus(); }
@@ -51,16 +51,16 @@ class SystemController {
 @ApiTags('providers')
 @Controller('providers/deepseek')
 class DeepSeekController {
-  constructor(private readonly providers: ProvidersService) {}
-  @Post('chat') chat(@Body() body: { messages: ChatMessage[]; model?: string; temperature?: number }) { return this.providers.chat(body.messages, body.model, body.temperature); }
+  constructor(@Inject(ProvidersService) private readonly providers: ProvidersService) {}
+  @Post('chat') chat(@Body() body: { messages: ChatMessage[]; model?: string; temperature?: number; connection?: { baseUrl?: string; apiKey?: string } }) { return this.providers.chat(body.messages, body.model, body.temperature, body.connection); }
 }
 
 @ApiTags('providers')
 @Controller('providers/jimeng')
 class JimengController {
-  constructor(private readonly providers: ProvidersService) {}
+  constructor(@Inject(ProvidersService) private readonly providers: ProvidersService) {}
   @Get() status() { return this.providers.jimengStatus(); }
-  @Post('images') generate(@Body() body: { model?: string; prompt: string; n?: number; size?: string; image?: string[]; ratio?: string; resolution?: string }) { return this.providers.generateJimeng(body); }
+  @Post('images') generate(@Body() body: { model?: string; prompt: string; n?: number; size?: string; image?: string[]; ratio?: string; resolution?: string; connection?: { baseUrl?: string; apiKey?: string } }) { return this.providers.generateJimeng(body); }
 }
 
 @ApiTags('projects')
@@ -98,7 +98,7 @@ class AssetController {
 @ApiTags('generation')
 @Controller('generation-jobs')
 class JobController {
-  constructor(private readonly queue: GenerationQueueService) {}
+  constructor(@Inject(GenerationQueueService) private readonly queue: GenerationQueueService) {}
   @Post('preflight') preflight(@Body() body: { model?: string; kind?: string }) { const model = String(body?.model ?? '').trim(); const kind = String(body?.kind ?? '').trim(); const family = catalog.find((item) => item.models.includes(model)); const supported = Boolean(family && (!kind || family.kind === kind)); return { valid: Boolean(model) && supported, provider: family?.provider ?? null, estimatedCost: null, warnings: supported ? [] : ['MODEL_NOT_IN_CATALOG'] }; }
   @Get() list(@Query('state') state?: string) { return [...store.jobs.values()].filter((job) => !state || job.state === state); }
   @Get(':id') get(@Param('id') id: string) { return store.jobs.get(id) ?? { ok: false, error: 'JOB_NOT_FOUND' }; }

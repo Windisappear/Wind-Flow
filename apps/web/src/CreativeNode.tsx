@@ -12,6 +12,7 @@ import {
 import type { CanvasNodeData } from './types';
 import { useCanvasStore } from './store';
 import { models } from './modelCatalog';
+import { settingToModel, useProviderSettings } from './providerSettings';
 import { createAsset, generateImage, generateText } from './api';
 
 const icons = { text: FileText, image: Image, video: Video, audio: Volume2, file: File };
@@ -27,7 +28,8 @@ function CreativeNodeView({ id, data, selected }: NodeProps<Node<CanvasNodeData>
   const Icon = icons[data.kind];
   const remove = useCanvasStore((state) => state.remove);
   const patch = useCanvasStore((state) => state.patch);
-  const compatible = models.filter((model) => model.kind === data.kind);
+  const providerSettings = useProviderSettings();
+  const compatible = [...providerSettings.map(settingToModel), ...models].filter((model) => model.kind === data.kind);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [quality, setQuality] = useState('High');
