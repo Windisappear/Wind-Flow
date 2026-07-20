@@ -3,6 +3,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { interval, map, Observable, Subject } from 'rxjs';
 import { PrismaService } from './prisma.service';
 import { GenerationQueueService } from './queue.service';
+import { ProvidersService } from './providers.service';
 
 type CanvasNode = { id: string; type?: string; position?: { x: number; y: number }; data: Record<string, unknown> };
 type CanvasEdge = { id: string; source: string; target: string; sourceHandle?: string; targetHandle?: string; animated?: boolean };
@@ -39,11 +40,19 @@ const ensureProject = (id: string) => {
 @ApiTags('system')
 @Controller()
 class SystemController {
-  constructor(private readonly prisma: PrismaService, private readonly queue: GenerationQueueService) {}
+  constructor(private readonly prisma: PrismaService, private readonly queue: GenerationQueueService, private readonly providers: ProvidersService) {}
   @Get('health') health() { return { status: 'ok', storage: this.prisma.enabled ? 'postgresql' : 'memory', queue: this.queue.enabled ? 'redis' : 'memory', time: now() }; }
   @Get('model-catalog') models() { return catalog; }
+  @Get('providers/deepseek') deepseek() { return this.providers.deepseekStatus(); }
   @Sse('events') events(): Observable<MessageEvent> { return store.events.asObservable(); }
   @Get('events/heartbeat') heartbeat() { return interval(15000).pipe(map(() => ({ data: { type: 'heartbeat', at: Date.now() } }))); }
+}
+
+@ApiTags('providers')
+@Controller('providers/deepseek')
+class DeepSeekController {
+  constructor(private readonly providers: ProvidersService) {}
+  @Post('chat') chat(@Body() body: { messages: ChatMessage[]; model?: string; temperature?: number }) { return this.providers.chat(body.messages, body.model, body.temperature); }
 }
 
 @ApiTags('projects')
@@ -90,5 +99,6 @@ class JobController {
   @Post(':id/cancel') cancel(@Param('id') id: string) { const job = store.jobs.get(id); if (!job) return { ok: false, error: 'JOB_NOT_FOUND' }; job.state = 'cancelled'; job.updatedAt = now(); store.events.next({ data: { type: 'generation.cancelled', job } } as MessageEvent); return job; }
 }
 
-@Module({ controllers: [SystemController, ProjectController, NodeController, AssetController, JobController], providers: [PrismaService, GenerationQueueService] })
+type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
+@Module({ controllers: [SystemController, DeepSeekController, ProjectController, NodeController, AssetController, JobController], providers: [PrismaService, GenerationQueueService, ProvidersService] })
 export class AppModule {}
