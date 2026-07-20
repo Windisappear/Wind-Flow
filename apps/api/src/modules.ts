@@ -1,6 +1,8 @@
 import { Body, Controller, Get, Module, Param, Post, Query, Sse } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { interval, map, Observable, Subject } from 'rxjs';
+import { PrismaService } from './prisma.service';
+import { GenerationQueueService } from './queue.service';
 
 type CanvasNode = { id: string; type?: string; position?: { x: number; y: number }; data: Record<string, unknown> };
 type CanvasEdge = { id: string; source: string; target: string; sourceHandle?: string; targetHandle?: string; animated?: boolean };
@@ -37,7 +39,8 @@ const ensureProject = (id: string) => {
 @ApiTags('system')
 @Controller()
 class SystemController {
-  @Get('health') health() { return { status: 'ok', storage: 'memory', time: now() }; }
+  constructor(private readonly prisma: PrismaService, private readonly queue: GenerationQueueService) {}
+  @Get('health') health() { return { status: 'ok', storage: this.prisma.enabled ? 'postgresql' : 'memory', queue: this.queue.enabled ? 'redis' : 'memory', time: now() }; }
   @Get('model-catalog') models() { return catalog; }
   @Sse('events') events(): Observable<MessageEvent> { return store.events.asObservable(); }
   @Get('events/heartbeat') heartbeat() { return interval(15000).pipe(map(() => ({ data: { type: 'heartbeat', at: Date.now() } }))); }
@@ -78,13 +81,14 @@ class AssetController {
 @ApiTags('generation')
 @Controller('generation-jobs')
 class JobController {
+  constructor(private readonly queue: GenerationQueueService) {}
   @Post('preflight') preflight(@Body() body: { model?: string; kind?: string }) { const model = String(body?.model ?? '').trim(); const kind = String(body?.kind ?? '').trim(); const family = catalog.find((item) => item.models.includes(model)); const supported = Boolean(family && (!kind || family.kind === kind)); return { valid: Boolean(model) && supported, provider: family?.provider ?? null, estimatedCost: null, warnings: supported ? [] : ['MODEL_NOT_IN_CATALOG'] }; }
   @Get() list(@Query('state') state?: string) { return [...store.jobs.values()].filter((job) => !state || job.state === state); }
   @Get(':id') get(@Param('id') id: string) { return store.jobs.get(id) ?? { ok: false, error: 'JOB_NOT_FOUND' }; }
   @Post() create(@Body() body: { nodeId?: string; provider?: string; model?: string; input?: unknown }) { const job: Job = { id: crypto.randomUUID(), nodeId: body.nodeId, provider: body.provider, model: body.model, input: body.input ?? body, state: 'awaiting_confirmation', createdAt: now(), updatedAt: now() }; store.jobs.set(job.id, job); return job; }
-  @Post(':id/confirm') confirm(@Param('id') id: string) { const job = store.jobs.get(id); if (!job) return { ok: false, error: 'JOB_NOT_FOUND' }; job.state = 'queued'; job.updatedAt = now(); store.events.next({ data: { type: 'generation.queued', job } } as MessageEvent); return job; }
+  @Post(':id/confirm') async confirm(@Param('id') id: string) { const job = store.jobs.get(id); if (!job) return { ok: false, error: 'JOB_NOT_FOUND' }; job.state = 'queued'; job.updatedAt = now(); const queueId = await this.queue.enqueue({ jobId: job.id, provider: job.provider, model: job.model, input: job.input }); store.events.next({ data: { type: 'generation.queued', job, queueId } } as MessageEvent); return { ...job, queueId }; }
   @Post(':id/cancel') cancel(@Param('id') id: string) { const job = store.jobs.get(id); if (!job) return { ok: false, error: 'JOB_NOT_FOUND' }; job.state = 'cancelled'; job.updatedAt = now(); store.events.next({ data: { type: 'generation.cancelled', job } } as MessageEvent); return job; }
 }
 
-@Module({ controllers: [SystemController, ProjectController, NodeController, AssetController, JobController] })
+@Module({ controllers: [SystemController, ProjectController, NodeController, AssetController, JobController], providers: [PrismaService, GenerationQueueService] })
 export class AppModule {}
