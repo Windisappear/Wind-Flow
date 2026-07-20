@@ -1,4 +1,6 @@
 import 'reflect-metadata';import { NestFactory } from '@nestjs/core';import { SwaggerModule,DocumentBuilder } from '@nestjs/swagger';import { AppModule } from './modules';
+import { readFileSync, existsSync } from 'node:fs';
+if (existsSync('.env')) for (const line of readFileSync('.env', 'utf8').split(/\r?\n/)) { const match = line.match(/^([A-Z0-9_]+)=(.*)$/); if (match && !process.env[match[1]]) process.env[match[1]] = match[2]; }
 async function bootstrap(){
  const app=await NestFactory.create(AppModule,{bodyParser:false});
  app.use((req:any,_res:any,next:any)=>{
