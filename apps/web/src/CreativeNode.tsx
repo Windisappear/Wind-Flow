@@ -12,6 +12,7 @@ import {
 import type { CanvasNodeData } from './types';
 import { useCanvasStore } from './store';
 import { models } from './modelCatalog';
+import { createAsset, generateImage, generateText } from './api';
 
 const icons = { text: FileText, image: Image, video: Video, audio: Volume2, file: File };
 const tones: Record<string, string> = { draft: 'gray', ready: 'cyan', awaiting_confirmation: 'yellow', queued: 'blue', running: 'blue', succeeded: 'teal', failed: 'red', stale: 'orange' };
@@ -34,17 +35,18 @@ function CreativeNodeView({ id, data, selected }: NodeProps<Node<CanvasNodeData>
   const [ratio, setRatio] = useState('16:9');
   const [count, setCount] = useState('1');
 
-  const run = () => {
+  const run = async () => {
     if (!data.model || data.kind === 'audio') return;
     patch(id, { state: 'running', progress: 12 });
-    let progress = 12;
-    const timer = window.setInterval(() => {
-      progress += 22;
-      if (progress >= 100) {
-        window.clearInterval(timer);
-        patch(id, { state: 'succeeded', progress: 100 });
-      } else patch(id, { progress });
-    }, 450);
+    try {
+      const result = data.kind === 'text' ? await generateText({ model: data.model, prompt: data.prompt }) : await generateImage({ model: data.model, prompt: data.prompt, ratio, resolution, n: Number(count) });
+      const text = result?.choices?.[0]?.message?.content;
+      const preview = result?.data?.[0]?.url;
+      if (preview) void createAsset({ kind: data.kind, name: data.title, objectKey: preview, source: 'jimeng', metadata: { model: data.model, prompt: data.prompt } }).catch(() => undefined);
+      patch(id, { state: 'succeeded', progress: 100, ...(text ? { prompt: text } : {}), ...(preview ? { preview } : {}) });
+    } catch (error) {
+      patch(id, { state: 'failed', progress: 0, prompt: `${data.prompt}\n\n[Generation failed] ${error instanceof Error ? error.message : 'Unknown error'}` });
+    }
   };
 
   return <div className={`creative-node creative-node-${data.kind} ${selected ? 'selected' : ''}`}>

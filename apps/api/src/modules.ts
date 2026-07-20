@@ -105,6 +105,11 @@ class JobController {
   @Post() create(@Body() body: { nodeId?: string; provider?: string; model?: string; input?: unknown }) { const job: Job = { id: crypto.randomUUID(), nodeId: body.nodeId, provider: body.provider, model: body.model, input: body.input ?? body, state: 'awaiting_confirmation', createdAt: now(), updatedAt: now() }; store.jobs.set(job.id, job); return job; }
   @Post(':id/confirm') async confirm(@Param('id') id: string) { const job = store.jobs.get(id); if (!job) return { ok: false, error: 'JOB_NOT_FOUND' }; job.state = 'queued'; job.updatedAt = now(); const queueId = await this.queue.enqueue({ jobId: job.id, provider: job.provider, model: job.model, input: job.input }); store.events.next({ data: { type: 'generation.queued', job, queueId } } as MessageEvent); return { ...job, queueId }; }
   @Post(':id/cancel') cancel(@Param('id') id: string) { const job = store.jobs.get(id); if (!job) return { ok: false, error: 'JOB_NOT_FOUND' }; job.state = 'cancelled'; job.updatedAt = now(); store.events.next({ data: { type: 'generation.cancelled', job } } as MessageEvent); return job; }
+  @Post(':id/execute') async execute(@Param('id') id: string) {
+    const job = store.jobs.get(id); if (!job) return { ok: false, error: 'JOB_NOT_FOUND' };
+    job.state = 'running'; job.updatedAt = now(); store.events.next({ data: { type: 'generation.running', job } } as MessageEvent);
+    return job;
+  }
 }
 
 type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
