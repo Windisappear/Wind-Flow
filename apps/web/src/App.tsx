@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ReactFlow, Background, MiniMap, Controls, addEdge, applyEdgeChanges, applyNodeChanges, BackgroundVariant, ReactFlowProvider, useReactFlow, type Connection, type EdgeChange, type NodeChange } from '@xyflow/react';
 import { ActionIcon, AppShell, Badge, Button, Divider, Group, Menu, Modal, SimpleGrid, Stack, Tabs, Text, TextInput, Tooltip } from '@mantine/core';
 import { Plus, Search, FolderOpen, History, Settings, Save, ChevronRight, FileText, Image, Video, Volume2, Upload, Command, Workflow, Users, Keyboard, CircleHelp, LayoutGrid, CheckSquare2 } from 'lucide-react';
@@ -11,12 +11,14 @@ const copy = { workspace: '\u672a\u547d\u540d\u5de5\u4f5c\u533a', saved: '\u5df2
 const characterImages = ['https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=420&q=80','https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=420&q=80','https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=420&q=80','https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=420&q=80','https://images.unsplash.com/photo-1531123897727-8f129e1688ce?auto=format&fit=crop&w=420&q=80'];
 
 function Workspace() {
-  const { nodes, edges, setNodes, setEdges, select, addNode } = useCanvasStore();
+  const { nodes, edges, setNodes, setEdges, select, addNode, hydrate, persist } = useCanvasStore();
   const [panel, setPanel] = useState<Panel | null>(null);
   const { fitView } = useReactFlow();
   const onNodesChange = useCallback((changes: NodeChange[]) => setNodes(applyNodeChanges(changes, nodes) as typeof nodes), [nodes, setNodes]);
   const onEdgesChange = useCallback((changes: EdgeChange[]) => setEdges(applyEdgeChanges(changes, edges)), [edges, setEdges]);
   const onConnect = useCallback((connection: Connection) => setEdges(addEdge({ ...connection, animated: true }, edges)), [edges, setEdges]);
+  useEffect(() => { void hydrate(); }, [hydrate]);
+  useEffect(() => { const timer = window.setTimeout(() => { void persist(); }, 900); return () => window.clearTimeout(timer); }, [nodes, edges, persist]);
   return <AppShell header={{ height: 52 }} padding={0}>
     <AppShell.Header className="topbar"><Group justify="space-between" h="100%" px={14}><Group gap={10}><div className="brand">F</div><TextInput className="project-name" variant="unstyled" defaultValue={copy.workspace}/><Badge variant="light" color="teal" leftSection={<Save size={12}/>}>{copy.saved}</Badge></Group><Group gap={6}><Badge variant="default">{copy.services}</Badge><Tooltip label={copy.settings}><ActionIcon variant="subtle" color="gray"><Settings size={17}/></ActionIcon></Tooltip><Button size="xs" variant="default">{copy.local}</Button></Group></Group></AppShell.Header>
     <AppShell.Main className="canvas-shell"><ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => select(node.id)} onPaneClick={() => select(undefined)} fitView minZoom={0.15} maxZoom={2} colorMode="dark"><Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#34373b"/><MiniMap pannable zoomable nodeColor="#464b51" maskColor="rgba(10,11,12,.72)"/><Controls position="bottom-left" showInteractive={false}/></ReactFlow>
