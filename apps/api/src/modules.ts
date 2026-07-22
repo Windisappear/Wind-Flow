@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Module, Param, Post, Query, Sse } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Inject, Module, Param, Post, Query, Sse } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { interval, map, Observable, Subject } from 'rxjs';
 import { PrismaService } from './prisma.service';
@@ -63,6 +63,18 @@ class JimengController {
   @Post('images') generate(@Body() body: { model?: string; prompt: string; n?: number; size?: string; image?: string[]; ratio?: string; resolution?: string; connection?: { baseUrl?: string; apiKey?: string } }) { return this.providers.generateJimeng(body); }
 }
 
+@ApiTags('providers')
+@Controller('providers/volcengine/videos')
+class VolcengineVideoController {
+  constructor(@Inject(ProvidersService) private readonly providers: ProvidersService) {}
+  private connection(headers: Record<string, string | string[] | undefined>) { return { baseUrl: String(headers['x-provider-base-url'] || ''), apiKey: String(headers['x-provider-api-key'] || '') }; }
+  @Get() status() { return this.providers.volcengineVideoStatus(); }
+  @Post('tasks') create(@Body() body: any) { return this.providers.createVideoTask(body); }
+  @Get('tasks') list(@Headers() headers: Record<string, string | string[] | undefined>, @Query('page_num') pageNum?: string, @Query('page_size') pageSize?: string, @Query('status') status?: string, @Query('model') model?: string, @Query('service_tier') serviceTier?: string) { return this.providers.listVideoTasks({ pageNum: Number(pageNum), pageSize: Number(pageSize), status, model, serviceTier }, this.connection(headers)); }
+  @Get('tasks/:id') get(@Headers() headers: Record<string, string | string[] | undefined>, @Param('id') id: string) { return this.providers.getVideoTask(id, this.connection(headers)); }
+  @Post('tasks/:id/cancel') cancel(@Headers() headers: Record<string, string | string[] | undefined>, @Param('id') id: string) { return this.providers.cancelVideoTask(id, this.connection(headers)); }
+}
+
 @ApiTags('projects')
 @Controller('projects')
 class ProjectController {
@@ -98,11 +110,27 @@ class AssetController {
 @ApiTags('generation')
 @Controller('generation-jobs')
 class JobController {
-  constructor(@Inject(GenerationQueueService) private readonly queue: GenerationQueueService) {}
+  constructor(@Inject(GenerationQueueService) private readonly queue: GenerationQueueService, @Inject(ProvidersService) private readonly providers: ProvidersService) {}
   @Post('preflight') preflight(@Body() body: { model?: string; kind?: string }) { const model = String(body?.model ?? '').trim(); const kind = String(body?.kind ?? '').trim(); const family = catalog.find((item) => item.models.includes(model)); const supported = Boolean(family && (!kind || family.kind === kind)); return { valid: Boolean(model) && supported, provider: family?.provider ?? null, estimatedCost: null, warnings: supported ? [] : ['MODEL_NOT_IN_CATALOG'] }; }
   @Get() list(@Query('state') state?: string) { return [...store.jobs.values()].filter((job) => !state || job.state === state); }
   @Get(':id') get(@Param('id') id: string) { return store.jobs.get(id) ?? { ok: false, error: 'JOB_NOT_FOUND' }; }
   @Post() create(@Body() body: { nodeId?: string; provider?: string; model?: string; input?: unknown }) { const job: Job = { id: crypto.randomUUID(), nodeId: body.nodeId, provider: body.provider, model: body.model, input: body.input ?? body, state: 'awaiting_confirmation', createdAt: now(), updatedAt: now() }; store.jobs.set(job.id, job); return job; }
+  @Post('run') async run(@Body() body: { nodeId?: string; kind: 'text' | 'image'; provider?: string; model?: string; input: any; connection?: { baseUrl?: string; apiKey?: string } }) {
+    const job: Job = { id: crypto.randomUUID(), nodeId: body.nodeId, provider: body.provider, model: body.model, input: structuredClone(body.input), state: 'running', createdAt: now(), updatedAt: now() };
+    store.jobs.set(job.id, job); store.events.next({ data: { type: 'generation.running', job } } as MessageEvent);
+    try {
+      const output = body.kind === 'text'
+        ? await this.providers.chat(body.input.messages, body.model, body.input.temperature, body.connection)
+        : await this.providers.generateJimeng({ ...body.input, model: body.model, connection: body.connection });
+      job.state = 'succeeded'; job.output = output; job.updatedAt = now();
+      store.events.next({ data: { type: 'generation.succeeded', job } } as MessageEvent);
+      return { job, output };
+    } catch (error) {
+      job.state = 'failed'; job.error = { message: error instanceof Error ? error.message : 'UNKNOWN_ERROR' }; job.updatedAt = now();
+      store.events.next({ data: { type: 'generation.failed', job } } as MessageEvent);
+      throw error;
+    }
+  }
   @Post(':id/confirm') async confirm(@Param('id') id: string) { const job = store.jobs.get(id); if (!job) return { ok: false, error: 'JOB_NOT_FOUND' }; job.state = 'queued'; job.updatedAt = now(); const queueId = await this.queue.enqueue({ jobId: job.id, provider: job.provider, model: job.model, input: job.input }); store.events.next({ data: { type: 'generation.queued', job, queueId } } as MessageEvent); return { ...job, queueId }; }
   @Post(':id/cancel') cancel(@Param('id') id: string) { const job = store.jobs.get(id); if (!job) return { ok: false, error: 'JOB_NOT_FOUND' }; job.state = 'cancelled'; job.updatedAt = now(); store.events.next({ data: { type: 'generation.cancelled', job } } as MessageEvent); return job; }
   @Post(':id/execute') async execute(@Param('id') id: string) {
@@ -113,5 +141,5 @@ class JobController {
 }
 
 type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
-@Module({ controllers: [SystemController, DeepSeekController, JimengController, ProjectController, NodeController, AssetController, JobController], providers: [PrismaService, GenerationQueueService, ProvidersService] })
+@Module({ controllers: [SystemController, DeepSeekController, JimengController, VolcengineVideoController, ProjectController, NodeController, AssetController, JobController], providers: [PrismaService, GenerationQueueService, ProvidersService] })
 export class AppModule {}
