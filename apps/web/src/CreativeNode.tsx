@@ -1,37 +1,53 @@
 import { memo, useRef, useState } from 'react';
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { ActionIcon, Badge, Button, Group, Menu, Modal, NumberInput, Popover, Progress, Select, SegmentedControl, SimpleGrid, Stack, Switch, Text, Textarea, Tooltip } from '@mantine/core';
-import { FileText, Image, Video, Volume2, File, MoreHorizontal, Trash2, Sparkles, Plus, Tag, Box, SlidersHorizontal, Send, Maximize2, LayoutGrid, UserRound, Clapperboard, Layers3, ScanFace, Package, Upload } from 'lucide-react';
+import { FileText, Image, Video, Volume2, File, MoreHorizontal, Trash2, Plus, Box, SlidersHorizontal, Send, Maximize2, LayoutGrid, Upload, ShieldCheck, CircleStop } from 'lucide-react';
 import type { CanvasNodeData, NodeParameters, NodeReference } from './types';
 import { useCanvasStore } from './store';
 import { models } from './modelCatalog';
 import { settingToModel, useProviderSettings } from './providerSettings';
-import { createAsset, generateImage, generateText, generateVideo } from './api';
+import { cancelVideoTask, createAsset, generateImage, generateText, generateVideo } from './api';
+import { featurePrompt, useNodeFeatures, type FeatureGroup, type NodeFeature } from './nodeFeatures';
 
 const icons = { text: FileText, image: Image, video: Video, audio: Volume2, file: File };
-const tones: Record<string, string> = { draft: 'gray', ready: 'cyan', awaiting_confirmation: 'yellow', queued: 'blue', running: 'blue', succeeded: 'teal', failed: 'red', stale: 'orange' };
-const stateLabels: Record<string, string> = { draft: '草稿', ready: '就绪', awaiting_confirmation: '等待确认', queued: '排队中', running: '生成中', succeeded: '已完成', failed: '失败', stale: '输入已修改' };
+const tones: Record<string, string> = { draft: 'gray', ready: 'cyan', awaiting_confirmation: 'yellow', queued: 'blue', running: 'blue', succeeded: 'teal', failed: 'red', cancelled: 'gray', stale: 'orange' };
+const stateLabels: Record<string, string> = { draft: '草稿', ready: '就绪', awaiting_confirmation: '等待确认', queued: '排队中', running: '生成中', succeeded: '已完成', failed: '失败', cancelled: '已取消', stale: '输入已修改' };
 const referenceCompatibility: Record<CanvasNodeData['kind'], CanvasNodeData['kind'][]> = { text: ['text'], image: ['text', 'image'], video: ['text', 'image', 'video'], audio: ['text', 'audio'], file: ['text', 'image', 'video', 'audio', 'file'] };
-const skills = [['分镜脚本', Clapperboard], ['九宫格分镜', LayoutGrid], ['角色表情', UserRound], ['电影灯光', Sparkles], ['多视图', LayoutGrid], ['面部特写', ScanFace], ['角色设定', UserRound], ['场景设定', Layers3], ['产品展示', Package]] as const;
 
 function CreativeNodeView({ id, data, selected }: NodeProps<Node<CanvasNodeData>>) {
   const Icon = icons[data.kind];
   const remove = useCanvasStore((state) => state.remove);
   const patch = useCanvasStore((state) => state.patch);
   const canvasNodes = useCanvasStore((state) => state.nodes);
+  const canvasEdges = useCanvasStore((state) => state.edges);
   const providerSettings = useProviderSettings();
+  const nodeFeatures = useNodeFeatures();
   const compatible = [...providerSettings.map(settingToModel), ...models].filter((model) => model.kind === data.kind);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
+  const [styleOpen, setStyleOpen] = useState(false);
+  const [constraintOpen, setConstraintOpen] = useState(false);
   const [referencesOpen, setReferencesOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const parameters = data.parameters || {};
   const setParameters = (next: Partial<NodeParameters>) => patch(id, { parameters: { ...parameters, ...next }, state: data.state === 'succeeded' ? 'stale' : data.state });
   const attachFiles = (files: FileList | null) => { if (!files?.length) return; const attachments = [...(data.attachments || []), ...Array.from(files).map((file) => ({ name: file.name, type: file.type, url: URL.createObjectURL(file) }))]; patch(id, { attachments, state: data.state === 'succeeded' ? 'stale' : data.state }); };
   const referenceNodes = (data.references || []).map((reference) => canvasNodes.find((node) => node.id === reference.nodeId)).filter(Boolean) as typeof canvasNodes;
-  const referenceCandidates = canvasNodes.filter((node) => node.id !== id && referenceCompatibility[data.kind].includes(node.data.kind) && (node.data.outputText || node.data.preview));
+  const upstreamIds = (() => {
+    const discovered = new Set<string>(); const pending = [id];
+    while (pending.length) {
+      const target = pending.pop()!;
+      for (const edge of canvasEdges) if (edge.target === target && !discovered.has(edge.source)) { discovered.add(edge.source); pending.push(edge.source); }
+    }
+    return discovered;
+  })();
+  const referenceCandidates = canvasNodes.filter((node) => upstreamIds.has(node.id) && referenceCompatibility[data.kind].includes(node.data.kind) && (node.data.outputText || node.data.preview));
   const toggleReference = (node: typeof canvasNodes[number]) => { const current = data.references || []; const exists = current.some((reference) => reference.nodeId === node.id); const references: NodeReference[] = exists ? current.filter((reference) => reference.nodeId !== node.id) : [...current, { nodeId: node.id, kind: node.data.kind, title: node.data.title }]; patch(id, { references, state: data.state === 'succeeded' ? 'stale' : data.state }); };
+  const featuresFor = (group: FeatureGroup) => nodeFeatures.filter((item) => item.kind === data.kind && item.group === group);
+  const selectedFeatures = nodeFeatures.filter((item) => data.featureIds?.includes(item.id));
+  const toggleFeature = (featureId: string, group: FeatureGroup) => { const current = data.featureIds || []; const groupIds = featuresFor(group).map((item) => item.id); const featureIds = current.includes(featureId) ? current.filter((value) => value !== featureId) : [...current.filter((value) => group === 'constraint' || !groupIds.includes(value)), featureId]; patch(id, { featureIds, state: data.state === 'succeeded' ? 'stale' : data.state }); };
 
   const run = async () => {
     if (!data.model || data.kind === 'audio' || data.kind === 'file') return;
@@ -40,22 +56,25 @@ function CreativeNodeView({ id, data, selected }: NodeProps<Node<CanvasNodeData>
     const timer = window.setInterval(() => { progress = Math.min(88, progress + Math.max(1, Math.round((90 - progress) / 8))); patch(id, { progress }); }, 700);
     try {
       const textReferences = referenceNodes.map((node) => node.data.outputText || (node.data.kind === 'text' ? node.data.prompt : '')).filter(Boolean);
-      const effectivePrompt = [data.prompt, ...textReferences.map((text, index) => `参考内容 ${index + 1}：${text}`)].filter(Boolean).join('\n\n');
+      const systemPrompt = featurePrompt(data.featureIds, nodeFeatures);
+      const effectivePrompt = [data.prompt, ...textReferences.map((text, index) => `参考内容 ${index + 1}：${text}`), data.kind === 'text' ? '' : systemPrompt].filter(Boolean).join('\n\n');
       const imageReferences = referenceNodes.filter((node) => node.data.kind === 'image' && node.data.preview).map((node) => node.data.preview as string);
       const mediaReferences = referenceNodes.filter((node) => (node.data.kind === 'image' || node.data.kind === 'video') && node.data.preview).map((node) => ({ url: node.data.preview as string, type: node.data.kind === 'video' ? 'video/mp4' : 'image/jpeg' }));
       const result = data.kind === 'text'
-        ? await generateText({ model: data.model, prompt: effectivePrompt, temperature: Number(parameters.temperature ?? 0.7) })
+        ? await generateText({ model: data.model, prompt: effectivePrompt, systemPrompt, temperature: Number(parameters.temperature ?? 0.7) })
         : data.kind === 'video'
-          ? await generateVideo({ model: data.model, prompt: effectivePrompt, attachments: [...mediaReferences, ...(data.attachments || [])], ratio: String(parameters.ratio || '16:9'), resolution: String(parameters.resolution || '720P'), duration: Number(parameters.duration || 5), generateAudio: Boolean(parameters.generateAudio), watermark: Boolean(parameters.watermark), returnLastFrame: Boolean(parameters.returnLastFrame), onStatus: (status, nextProgress) => patch(id, { state: status === 'queued' ? 'queued' : 'running', progress: nextProgress }) })
+          ? await generateVideo({ model: data.model, prompt: effectivePrompt, attachments: [...mediaReferences, ...(data.attachments || [])], ratio: String(parameters.ratio || '16:9'), resolution: String(parameters.resolution || '720P'), duration: Number(parameters.duration || 5), generateAudio: Boolean(parameters.generateAudio), watermark: Boolean(parameters.watermark), returnLastFrame: Boolean(parameters.returnLastFrame), onCreated: (jobId) => patch(id, { jobId, state: 'queued', progress: 12 }), onStatus: (status, nextProgress) => patch(id, { state: status === 'queued' ? 'queued' : 'running', progress: nextProgress }) })
           : await generateImage({ model: data.model, prompt: effectivePrompt, image: imageReferences, ratio: String(parameters.ratio || '1:1'), resolution: String(parameters.resolution || '1K'), n: Number(parameters.outputs || 1) });
       const outputText = result?.choices?.[0]?.message?.content;
       const preview = result?.content?.video_url || result?.data?.[0]?.url || (result?.data?.[0]?.b64_json ? `data:image/png;base64,${result.data[0].b64_json}` : undefined);
       if (preview) void createAsset({ kind: data.kind, name: data.title, objectKey: preview, source: data.provider, metadata: { model: data.model, prompt: data.prompt, parameters } }).catch(() => undefined);
-      patch(id, { state: 'succeeded', progress: 100, error: undefined, ...(outputText ? { outputText } : {}), ...(preview ? { preview } : {}) });
+      patch(id, { state: 'succeeded', progress: 100, error: undefined, ...(outputText ? { outputText } : {}), ...(preview ? { preview } : {}), ...(result?.windFlowJobId ? { jobId: result.windFlowJobId as string } : {}) });
     } catch (error) {
-      patch(id, { state: 'failed', progress: 0, error: error instanceof Error ? error.message : '未知错误' });
+      const message = error instanceof Error ? error.message : '未知错误';
+      patch(id, message === 'VIDEO_TASK_CANCELLED' ? { state: 'cancelled', progress: 0, error: undefined } : { state: 'failed', progress: 0, error: message });
     } finally { window.clearInterval(timer); }
   };
+  const requestRun = () => { if (data.model && data.prompt.trim() && data.state !== 'running') setConfirmOpen(true); };
 
   return <div className={`creative-node creative-node-${data.kind} ${selected ? 'selected' : ''}`}>
     <Handle type="target" position={Position.Left}/>
@@ -72,19 +91,29 @@ function CreativeNodeView({ id, data, selected }: NodeProps<Node<CanvasNodeData>
 
     {selected && <section className="prompt-composer nodrag">
       <input ref={fileInput} type="file" hidden multiple accept={data.kind === 'image' ? 'image/*' : data.kind === 'video' ? 'video/*,image/*,audio/*' : '*/*'} onChange={(event) => { attachFiles(event.currentTarget.files); event.currentTarget.value = ''; }}/>
-      <Group gap={6} className="prompt-chips"><Popover opened={referencesOpen} onChange={setReferencesOpen} position="bottom-start" width={300} shadow="xl"><Popover.Target><Button size="compact-xs" variant="default" leftSection={<Plus size={13}/>} onClick={() => setReferencesOpen((open) => !open)}>参考</Button></Popover.Target><Popover.Dropdown className="reference-popover"><Text size="xs" c="dimmed" mb={6}>选择上游节点结果</Text><Stack gap={3}>{referenceCandidates.length ? referenceCandidates.map((node) => { const RefIcon = icons[node.data.kind]; const active = data.references?.some((reference) => reference.nodeId === node.id); return <Button key={node.id} variant={active ? 'light' : 'subtle'} color={active ? 'cyan' : 'gray'} justify="flex-start" leftSection={<RefIcon size={15}/>} onClick={() => toggleReference(node)}>{node.data.title}</Button>; }) : <Text size="sm" c="dimmed">暂无可引用的节点结果</Text>}</Stack></Popover.Dropdown></Popover><Button size="compact-xs" variant="default" leftSection={<Tag size={13}/>}>标签</Button><Button size="compact-xs" variant="default" leftSection={<Box size={13}/>}>风格</Button><Tooltip label="展开编辑器"><ActionIcon ml="auto" size="sm" variant="subtle" color="gray" onClick={() => setEditorOpen(true)}><Maximize2 size={14}/></ActionIcon></Tooltip></Group>
+      <Group gap={6} className="prompt-chips"><Popover opened={referencesOpen} onChange={setReferencesOpen} position="bottom-start" width={300} shadow="xl"><Popover.Target><Button size="compact-xs" variant="default" leftSection={<Plus size={13}/>} onClick={() => setReferencesOpen((open) => !open)}>参考</Button></Popover.Target><Popover.Dropdown className="reference-popover"><Text size="xs" c="dimmed" mb={6}>选择上游节点结果</Text><Stack gap={3}>{referenceCandidates.length ? referenceCandidates.map((node) => { const RefIcon = icons[node.data.kind]; const active = data.references?.some((reference) => reference.nodeId === node.id); return <Button key={node.id} variant={active ? 'light' : 'subtle'} color={active ? 'cyan' : 'gray'} justify="flex-start" leftSection={<RefIcon size={15}/>} onClick={() => toggleReference(node)}>{node.data.title}</Button>; }) : <Text size="sm" c="dimmed">暂无可引用的节点结果</Text>}</Stack></Popover.Dropdown></Popover>{data.kind === 'video' && <FeatureMenu label="约束" icon={ShieldCheck} features={featuresFor('constraint')} selected={data.featureIds} opened={constraintOpen} setOpened={setConstraintOpen} onToggle={(featureId) => toggleFeature(featureId,'constraint')}/>} {(data.kind === 'image' || data.kind === 'video') && <FeatureMenu label="风格" icon={Box} features={featuresFor('style')} selected={data.featureIds} opened={styleOpen} setOpened={setStyleOpen} onToggle={(featureId) => toggleFeature(featureId,'style')}/>}<Tooltip label="展开编辑器"><ActionIcon ml="auto" size="sm" variant="subtle" color="gray" onClick={() => setEditorOpen(true)}><Maximize2 size={14}/></ActionIcon></Tooltip></Group>
       {!!data.references?.length && <Group gap={5} mt={7}>{referenceNodes.map((node) => <Badge key={node.id} variant="light" color="cyan" size="sm">参考：{node.data.title}</Badge>)}</Group>}
+      {!!selectedFeatures.length && <Group gap={5} mt={7}>{selectedFeatures.map((feature) => <Badge key={feature.id} variant="light" color="gray" size="sm">{feature.name}</Badge>)}</Group>}
       {!!data.attachments?.length && <Group gap={5} mt={7}>{data.attachments.map((file) => <Badge key={file.url} variant="default" size="sm">{file.name}</Badge>)}</Group>}
       <div className="prompt-editor-wrap"><Textarea className="prompt-input" variant="unstyled" autosize minRows={3} maxRows={7} value={data.prompt} placeholder={data.kind === 'text' ? '输入消息，使用参考按钮引用节点结果' : '描述你想生成的内容，可引用上游节点结果'} onChange={(event) => patch(id, { prompt: event.currentTarget.value, state: data.state === 'succeeded' ? 'stale' : data.state, error: undefined })}/></div>
       <Group justify="space-between" wrap="nowrap" className="composer-footer"><Group gap={6} wrap="nowrap">
-        <Select className="model-select" variant="unstyled" size="xs" data={compatible} value={data.model || null} placeholder="选择模型" allowDeselect={false} onChange={(value) => { const model = compatible.find((item) => item.value === value); patch(id, { model: value || '', provider: model?.provider || '', state: 'ready' }); }}/>
+        <Select className="model-select" variant="unstyled" size="xs" data={compatible} value={data.model || null} placeholder={compatible.length ? '选择模型' : '暂未接入模型'} nothingFoundMessage="暂未接入，请前往设置 > 模型管理添加" searchable allowDeselect={false} onChange={(value) => { const model = compatible.find((item) => item.value === value); patch(id, { model: value || '', provider: model?.provider || '', state: 'ready' }); }}/>
         <Popover opened={settingsOpen} onChange={setSettingsOpen} position="bottom-start" width={380} shadow="xl"><Popover.Target><Button size="compact-sm" variant="default" leftSection={<SlidersHorizontal size={14}/>} onClick={() => setSettingsOpen((open) => !open)}>{parameterSummary(data.kind, parameters)}</Button></Popover.Target><Popover.Dropdown className="settings-popover"><ParameterEditor kind={data.kind} parameters={parameters} update={setParameters}/></Popover.Dropdown></Popover>
-        {data.kind === 'image' && <Popover opened={skillsOpen} onChange={setSkillsOpen} position="bottom-start" width={440} shadow="xl"><Popover.Target><Tooltip label="创作模块"><ActionIcon variant="default" onClick={() => setSkillsOpen((open) => !open)}><LayoutGrid size={16}/></ActionIcon></Tooltip></Popover.Target><Popover.Dropdown className="skill-popover"><SimpleGrid cols={2} spacing={5}>{skills.map(([label, SkillIcon]) => <Button key={label} variant="subtle" color="gray" justify="flex-start" leftSection={<SkillIcon size={16}/>} onClick={() => { patch(id, { prompt: `${data.prompt}${data.prompt ? '\n' : ''}/${label}` }); setSkillsOpen(false); }}>{label}</Button>)}</SimpleGrid></Popover.Dropdown></Popover>}
-      </Group><Group gap={7}><Tooltip label="上传本地文件"><ActionIcon size="lg" variant="subtle" color="gray" onClick={() => fileInput.current?.click()}><Upload size={17}/></ActionIcon></Tooltip><ActionIcon size="lg" radius="xl" color="gray" variant="filled" disabled={!data.model || !data.prompt.trim() || data.kind === 'audio' || data.kind === 'file' || data.state === 'running'} onClick={run}><Send size={16}/></ActionIcon></Group></Group>
-    </section>}
-    <Modal opened={editorOpen} onClose={() => setEditorOpen(false)} title={`${data.title} · 展开编辑`} centered size="80vw" overlayProps={{ backgroundOpacity: 0.72, blur: 3 }} classNames={{ content: 'expanded-editor-modal', body: 'expanded-editor-body' }}><Stack h="100%"><Group gap={6}>{referenceNodes.map((node) => <Badge key={node.id} variant="light" color="cyan">参考：{node.data.title}</Badge>)}</Group><Textarea value={data.prompt} onChange={(event) => patch(id, { prompt: event.currentTarget.value, state: data.state === 'succeeded' ? 'stale' : data.state, error: undefined })} placeholder="在这里编辑完整提示词" autosize minRows={16} maxRows={24} styles={{ input: { lineHeight: 1.7 } }}/><Group justify="space-between"><Button variant="default" leftSection={<Upload size={15}/>} onClick={() => fileInput.current?.click()}>上传文件</Button><Button onClick={() => setEditorOpen(false)}>完成编辑</Button></Group></Stack></Modal>
+        {(data.kind === 'text' || data.kind === 'image') && <FeatureMenu
+          label="创作模块" icon={LayoutGrid} iconOnly features={featuresFor('module')}
+          selected={data.featureIds} opened={skillsOpen} setOpened={setSkillsOpen}
+          onToggle={(featureId) => toggleFeature(featureId,'module')}
+        />}
+       </Group><Group gap={7}><Tooltip label="上传本地文件"><ActionIcon size="lg" variant="subtle" color="gray" onClick={() => fileInput.current?.click()}><Upload size={17}/></ActionIcon></Tooltip>{data.kind === 'video' && data.jobId && (data.state === 'running' || data.state === 'queued') ? <Tooltip label="取消视频任务"><ActionIcon size="lg" variant="subtle" color="red" onClick={() => { void cancelVideoTask(data.jobId!).then(() => patch(id, { state: 'cancelled', progress: 0 })); }}><CircleStop size={17}/></ActionIcon></Tooltip> : null}<ActionIcon size="lg" radius="xl" color="gray" variant="filled" disabled={!data.model || !data.prompt.trim() || data.kind === 'audio' || data.kind === 'file' || data.state === 'running'} onClick={requestRun}><Send size={16}/></ActionIcon></Group></Group>
+     </section>}
+    <Modal opened={confirmOpen} onClose={() => setConfirmOpen(false)} centered title="确认生成" size={460} classNames={{ content: 'generation-confirm-modal' }}><Stack gap="sm"><Text size="sm" c="dimmed">将向已配置的模型服务发起一次请求。本次输入会作为任务快照保存。</Text><div className="confirmation-summary"><Text size="xs" c="dimmed">模型</Text><Text size="sm">{data.provider || '已配置供应商'} / {data.model}</Text></div><div className="confirmation-summary"><Text size="xs" c="dimmed">参数</Text><Text size="sm">{parameterSummary(data.kind, parameters)}</Text></div><div className="confirmation-prompt"><Text size="xs" c="dimmed" mb={5}>提示词</Text><Text size="sm" lineClamp={6}>{data.prompt}</Text></div>{data.references?.length ? <Text size="xs" c="dimmed">将同时引用 {data.references.length} 个上游节点结果</Text> : null}<Group justify="flex-end" mt="sm"><Button variant="default" onClick={() => setConfirmOpen(false)}>取消</Button><Button onClick={() => { setConfirmOpen(false); void run(); }}>确认生成</Button></Group></Stack></Modal>
+    <Modal opened={editorOpen} onClose={() => setEditorOpen(false)} withCloseButton={false} centered size={800} overlayProps={{ backgroundOpacity: 0.78, blur: 3 }} classNames={{ content: 'expanded-editor-modal', body: 'expanded-editor-body' }}><div className="expanded-editor-shell"><Tooltip label="收起编辑器"><ActionIcon className="expanded-editor-close" variant="subtle" color="gray" onClick={() => setEditorOpen(false)}><Maximize2 size={16}/></ActionIcon></Tooltip><Group gap={5}>{referenceNodes.map((node) => <Badge key={node.id} variant="light" color="cyan">参考：{node.data.title}</Badge>)}{selectedFeatures.map((feature) => <Badge key={feature.id} variant="light" color="gray">{feature.name}</Badge>)}</Group><Textarea className="expanded-prompt-input" variant="unstyled" value={data.prompt} onChange={(event) => patch(id, { prompt: event.currentTarget.value, state: data.state === 'succeeded' ? 'stale' : data.state, error: undefined })} placeholder="写下你想生成的内容、故事、场景或角色设定" autosize minRows={20} maxRows={26}/><Group className="expanded-editor-footer" justify="space-between"><Select variant="unstyled" w={230} data={compatible} value={data.model || null} placeholder={compatible.length ? '选择模型' : '暂未接入模型'} allowDeselect={false} onChange={(value) => { const model = compatible.find((item) => item.value === value); patch(id, { model: value || '', provider: model?.provider || '', state: 'ready' }); }}/><Group gap={8}><Tooltip label="上传文件"><ActionIcon variant="subtle" color="gray" onClick={() => fileInput.current?.click()}><Upload size={17}/></ActionIcon></Tooltip><ActionIcon size="lg" radius="xl" color="gray" variant="filled" disabled={!data.model || !data.prompt.trim() || data.state === 'running'} onClick={requestRun}><Send size={16}/></ActionIcon></Group></Group></div></Modal>
     <Handle type="source" position={Position.Right}/>
   </div>;
+}
+
+function FeatureMenu({ label, icon: FeatureIcon, iconOnly, features, selected, opened, setOpened, onToggle }: { label: string; icon: typeof Box; iconOnly?: boolean; features: NodeFeature[]; selected?: string[]; opened: boolean; setOpened: (open: boolean) => void; onToggle: (id: string) => void }) {
+  return <Popover opened={opened} onChange={setOpened} position="bottom-start" width={230} shadow="xl"><Popover.Target>{iconOnly ? <Tooltip label={label}><ActionIcon variant="default" aria-label={label} onClick={() => setOpened(!opened)}><FeatureIcon size={16}/></ActionIcon></Tooltip> : <Button size="compact-xs" variant="default" leftSection={<FeatureIcon size={13}/>} onClick={() => setOpened(!opened)}>{label}</Button>}</Popover.Target><Popover.Dropdown className="feature-popover"><Text size="xs" c="dimmed" mb={7}>{label}</Text><Stack gap={2}>{features.length ? features.map((feature) => <Button key={feature.id} variant={selected?.includes(feature.id) ? 'light' : 'subtle'} color={selected?.includes(feature.id) ? 'cyan' : 'gray'} justify="flex-start" onClick={() => { onToggle(feature.id); if (feature.group !== 'constraint') setOpened(false); }}><Text size="sm" fw={600}>{feature.name}</Text></Button>) : <Text size="sm" c="dimmed">请在设置的节点功能中添加选项</Text>}</Stack></Popover.Dropdown></Popover>;
 }
 
 function parameterSummary(kind: CanvasNodeData['kind'], p: NodeParameters) { if (kind === 'text') return `温度 ${p.temperature ?? 0.7} · ${p.maxTokens ?? 2048} 字符`; if (kind === 'video') return `${p.ratio || '16:9'} · ${p.resolution || '1080P'} · ${p.duration || 5}秒`; if (kind === 'image') return `${p.ratio || '1:1'} · ${p.resolution || '1K'} · ${p.outputs || 1}张`; return '参数'; }

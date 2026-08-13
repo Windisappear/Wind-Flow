@@ -18,6 +18,11 @@ if (Test-Path (Join-Path $runtime 'node\bin\node.exe')) {
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'Node.js was not found in PATH or the Codex runtime.' }
 if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) { throw 'pnpm was not found. Run: npm install -g pnpm' }
 if (-not (Test-Path (Join-Path $root '.env'))) { throw 'The root .env file is missing.' }
+if (-not $env:DATABASE_URL) {
+  Get-Content (Join-Path $root '.env') | ForEach-Object {
+    if ($_ -match '^DATABASE_URL=(.+)$') { $env:DATABASE_URL = $Matches[1] }
+  }
+}
 
 if (Test-Path $pidFile) {
   $oldPid = [int](Get-Content $pidFile -ErrorAction SilentlyContinue)
@@ -34,6 +39,11 @@ $env:PORT = '3233'
 $server = $null
 
 try {
+  if ($env:DATABASE_URL) {
+    Write-Host '[Wind Flow] Checking PostgreSQL schema...' -ForegroundColor DarkGray
+    & (Join-Path $root 'apps\api\node_modules\.bin\prisma.cmd') db push --schema (Join-Path $root 'apps\api\prisma\schema.prisma') --skip-generate
+    if ($LASTEXITCODE -ne 0) { throw 'Database schema synchronization failed. Start Docker services first, then retry.' }
+  }
   Write-Host '[Wind Flow] Starting API and web servers in one managed process...' -ForegroundColor Cyan
   Write-Host '[Wind Flow] Press Ctrl+C once to stop all services.' -ForegroundColor DarkGray
   $server = Start-Process -FilePath 'cmd.exe' -ArgumentList '/d', '/s', '/c', 'pnpm dev' -NoNewWindow -PassThru
